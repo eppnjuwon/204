@@ -132,6 +132,9 @@ const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+/* ---------------- 지각 체크 잠금 비밀번호 ---------------- */
+const TARDY_PW = "yigongsa2026";
+
 /* ---------------- 과목 (코드에서 관리) ---------------- */
 const COMMON = ["화법과 언어","미적분Ⅰ","영어Ⅱ","스포츠 생활2"];
 const ELECTIVES = ["문학과 영상","인공지능 수학","심화 영어","세계시민과 지리","세계사","현대사회와 윤리","법과 사회","경제","윤리와 사상","국제 관계의 이해","생명과학","지구과학","역학과 에너지","물질과 에너지","세포와 물질대사","지구시스템과학","인공지능 기초","독일어권 문화","인간과 심리","생태와 환경"];
@@ -159,7 +162,7 @@ const setMeLocal=id=>{try{localStorage.setItem("myId",id);}catch{}};
 /* ---------------- 상태 ---------------- */
 let S={ tab:"home", roster:[], assessments:[], events:[], tardy:{}, todos:{},
         me:getMe(), editTT:false, tardyDate:iso(new Date()), openOvr:new Set(),
-        loading:true, error:null };
+        tardyUnlocked:false, loading:true, error:null };
 let selectedTardy=new Set();
 
 /* ---------------- 저장 표시 ---------------- */
@@ -280,35 +283,52 @@ function calendarHTML(){
     <div style="margin-top:10px">${up.length===0?`<p class="hint" style="margin:0">등록된 일정 없음</p>`:up.map(e=>`<div style="display:flex;gap:8px;font-size:13px;padding:3px 0"><span style="color:var(--primary);font-weight:700;min-width:46px">${e.date.slice(5).replace("-",".")}</span><span>${esc(e.title)}</span></div>`).join("")}</div>`;
 }
 
-/* ---------------- 지각 체크 ---------------- */
+/* ---------------- 지각 체크 (비밀번호 잠금) ---------------- */
 function viewTardy(){
   const {cnt}=weekInfo();
   const recorded=S.tardy[S.tardyDate]||[];
   const over=S.roster.filter(s=>cnt[s.id]).sort((a,b)=>cnt[b.id]-cnt[a.id]);
-  return `<div class="grid">
+  const U=S.tardyUnlocked;
+
+  const lockCard = U ? `
     <div class="card">
-      <h3>지각 체크</h3>
+      <h3>지각 체크<span class="count" data-action="tardy-lock">🔒 잠그기</span></h3>
       <div class="row" style="margin-bottom:10px">
         <input type="date" id="tardyDate" value="${S.tardyDate}" />
       </div>
-     ${S.roster.length===0?`<p class="empty"></p>`: 
+      ${S.roster.length===0?`<p class="empty">먼저 관리 탭에서 학생을 등록하세요.</p>`:
       `<div class="chips">${S.roster.map(s=>`<div class="chip ${selectedTardy.has(s.id)?"sel":""}" data-action="tardy-chip" data-id="${s.id}">${esc(s.name)}${(cnt[s.id]||0)>0?`<span class="c">${cnt[s.id]}</span>`:""}</div>`).join("")}</div>
       <div class="row" style="margin-top:14px">
         <button class="btn" data-action="tardy-save" ${selectedTardy.size===0?"disabled":""}>지각 기록 저장${selectedTardy.size?` (${selectedTardy.size}명)`:""}</button>
         ${selectedTardy.size?`<button class="btn ghost mini" data-action="tardy-clear">선택 해제</button>`:""}
       </div>`}
-    </div>
+    </div>` : `
+    <div class="card">
+      <h3>🔒 지각 체크는 관리자만</h3>
+      <p class="hint" style="margin-top:0">기록·수정은 잠겨 있어요. 현황은 아래에서 볼 수 있어요.</p>
+      <div class="row" style="margin-top:6px">
+        <input type="password" id="tardyPw" placeholder="관리자 비밀번호" style="flex:1;min-width:160px" />
+        <button class="btn" data-action="tardy-unlock">잠금 해제</button>
+      </div>
+    </div>`;
+
+  const recCard = `
     <div class="card">
       <h3>${fmtK(S.tardyDate)} 지각한 사람<span class="count">${recorded.length}명</span></h3>
       ${recorded.length===0?`<p class="empty">기록 없음</p>`:
-        `<div class="row">${recorded.map(id=>`<span class="tagrm">${esc(nameOf(id))}<button data-action="tardy-remove" data-id="${id}">×</button></span>`).join("")}</div>`}
-    </div>
+        `<div class="row">${recorded.map(id=>U
+          ?`<span class="tagrm">${esc(nameOf(id))}<button data-action="tardy-remove" data-id="${id}">×</button></span>`
+          :`<span class="tag subj">${esc(nameOf(id))}</span>`).join("")}</div>`}
+    </div>`;
+
+  const sumCard = `
     <div class="card">
       <h3>이번 주 누적</h3>
       ${over.length===0?`<p class="empty">이번 주 지각 기록 없음</p>`:
         over.map(s=>`<div class="item"><span class="t">${esc(s.name)}</span><span class="d"><span class="dday ${cnt[s.id]>=3?"near":"soon"}">${cnt[s.id]}회</span></span></div>`).join("")}
-    </div>
-  </div>`;
+    </div>`;
+
+  return `<div class="grid">${lockCard}${recCard}${sumCard}</div>`;
 }
 
 /* ---------------- 수행평가 ---------------- */
@@ -323,6 +343,7 @@ function viewAssess(){
         <input id="asDate" type="date" />
         <button class="btn" data-action="assess-add">추가</button>
       </div>
+    </div>
     <div class="card">
       <h3>전체 수행평가 일정<span class="count">${sorted.length}개</span></h3>
       ${sorted.length===0?`<p class="empty">수행평가 없음</p>`:sorted.map(a=>{
@@ -438,6 +459,8 @@ function wire(){
   if(todoInput) todoInput.addEventListener("keydown",e=>{if(e.key==="Enter")onAction("todo-add");});
   const stuName=root.querySelector("#stuName");
   if(stuName) stuName.addEventListener("keydown",e=>{if(e.key==="Enter")onAction("stu-add");});
+  const pw=root.querySelector("#tardyPw");
+  if(pw) pw.addEventListener("keydown",e=>{if(e.key==="Enter")onAction("tardy-unlock");});
 }
 
 async function onAction(a,el){
@@ -447,6 +470,10 @@ async function onAction(a,el){
     case "tab": S.tab=el.dataset.tab; if(S.tab==="tardy"){selectedTardy=new Set();} render(); window.scrollTo(0,0); break;
 
     /* 지각 */
+    case "tardy-unlock":{const pw=(V("tardyPw")?.value||"").trim();
+      if(pw===TARDY_PW){S.tardyUnlocked=true;render();}
+      else{alert("비밀번호가 틀렸어요.");} break;}
+    case "tardy-lock": S.tardyUnlocked=false; selectedTardy=new Set(); render(); break;
     case "tardy-chip":{const id=num(el.dataset.id); if(selectedTardy.has(id))selectedTardy.delete(id);else selectedTardy.add(id);
       el.classList.toggle("sel"); const btn=app().querySelector('[data-action="tardy-save"]');
       if(btn){btn.disabled=selectedTardy.size===0;btn.textContent=`지각 기록 저장${selectedTardy.size?` (${selectedTardy.size}명)`:""}`;} break;}
