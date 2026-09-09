@@ -218,7 +218,7 @@ function render(){
   else if(S.tab==="manage") body=viewManage();
 
   app().innerHTML=`
-    <div class="top"><h1 class="logo"><span class="dot"></span>우리반 허브</h1><span class="today">${todayStr}</span></div>
+    <div class="top"><h1 class="logo"><span class="dot"></span>2학년 4반</h1><span class="today">${todayStr}</span></div>
     <nav class="nav">${TABS.map(([k,l])=>`<button data-action="tab" data-tab="${k}" class="${S.tab===k?"on":""}">${l}</button>`).join("")}</nav>
     ${body}`;
   wire();
@@ -262,7 +262,6 @@ function viewHome(){
           return `<div class="item"><span class="tag subj">${esc(a.subject)}</span>
             <span class="t">${esc(a.title)}${v?`<span class="varies">개인별 상이</span>`:""}</span>
             <span class="d"><span class="dday ${ddayClass(a.dd)}">${ddayLabel(a.dd)}</span><div class="date">${fmtK(a.date)}</div></span></div>`;}).join("")}
-      <p class="hint">내 과목 일정만 보려면 위 <b>내 페이지</b>에서 이름을 선택</p>
     </div>
   </div>`;
 }
@@ -369,7 +368,7 @@ function viewMe(){
     </div>
     <div class="card">
       <h3>내 수행평가<span class="count">내 선택과목만</span></h3>
-      ${myAssess.length===0?`<p class="empty">해당 과목의 수행평가가 없어요.</p>`:myAssess.map(a=>`<div class="item">
+      ${myAssess.length===0?`<p class="empty">수행평가 없음</p>`:myAssess.map(a=>`<div class="item">
         <span class="tag subj">${esc(a.subject)}</span>
         <span class="t">${esc(a.title)}${a.adj?`<span class="varies">내 날짜 조정됨</span>`:""}</span>
         <span class="d"><span class="dday ${ddayClass(a.dd)}">${a.dd>=0?ddayLabel(a.dd):"지남"}</span><div class="date">${fmtK(a.myDate)}</div></span></div>`).join("")}
@@ -407,7 +406,7 @@ function viewManage(){
     </div>
     <div class="card">
       <h3>선택과목 설정 (학생별)</h3>
-      ${S.roster.length===0?`<p class="empty">기록 없</p>`:S.roster.map(s=>`<div style="padding:12px 0;border-top:1px solid var(--line)">
+      ${S.roster.length===0?`<p class="empty">기록 없음</p>`:S.roster.map(s=>`<div style="padding:12px 0;border-top:1px solid var(--line)">
         <div class="row" style="justify-content:space-between"><b style="font-size:15px">${esc(s.name)}</b><button class="btn danger mini" data-action="stu-del" data-id="${s.id}">삭제</button></div>
         <div class="subjbox">${ELECTIVES.map(sub=>`<label class="${s.subjects.includes(sub)?"on":""}" data-action="stu-subj" data-id="${s.id}" data-subj="${sub}">${sub}</label>`).join("")}</div>
       </div>`).join("")}
@@ -415,7 +414,7 @@ function viewManage(){
     <div class="card">
       <h3>학사 일정 관리</h3>
       <div class="row"><input id="evDate" type="date" /><input id="evTitle" placeholder="예: 9월 모의고사" style="flex:1;min-width:140px" /><button class="btn" data-action="event-add">추가</button></div>
-      <div style="margin-top:10px">${upEv.length===0?`<p class="empty">일정 없</p>`:upEv.map(e=>`<div class="item"><span class="t">${esc(e.title)}</span><span class="d"><div class="date">${fmtK(e.date)}</div></span><button class="btn danger mini" data-action="event-del" data-id="${e.id}">삭제</button></div>`).join("")}</div>
+      <div style="margin-top:10px">${upEv.length===0?`<p class="empty">일정 없음</p>`:upEv.map(e=>`<div class="item"><span class="t">${esc(e.title)}</span><span class="d"><div class="date">${fmtK(e.date)}</div></span><button class="btn danger mini" data-action="event-del" data-id="${e.id}">삭제</button></div>`).join("")}</div>
     </div>
   </div>`;
 }
