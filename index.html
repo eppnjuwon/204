@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
-<title>우리반 허브</title>
+<title>2학년 4</title>
 <style>
 :root{
   --bg:#EEF2F3; --surface:#FFFFFF; --ink:#17223B; --muted:#64748B;
@@ -278,7 +278,7 @@ function calendarHTML(){
   const up=S.events.map(e=>({...e,dd:dday(e.date)})).filter(e=>e.dd>=0).sort((a,b)=>a.dd-b.dd).slice(0,3);
   return `<div style="font-size:13px;font-weight:700;margin-bottom:4px">${y}년 ${m+1}월</div>
     <div class="cal">${["일","월","화","수","목","금","토"].map(d=>`<div class="h">${d}</div>`).join("")}${cells}</div>
-    <div style="margin-top:10px">${up.length===0?`<p class="hint" style="margin:0">등록된 일정이 없어요.</p>`:up.map(e=>`<div style="display:flex;gap:8px;font-size:13px;padding:3px 0"><span style="color:var(--primary);font-weight:700;min-width:46px">${e.date.slice(5).replace("-",".")}</span><span>${esc(e.title)}</span></div>`).join("")}</div>`;
+    <div style="margin-top:10px">${up.length===0?`<p class="hint" style="margin:0">등록된 일정 없음</p>`:up.map(e=>`<div style="display:flex;gap:8px;font-size:13px;padding:3px 0"><span style="color:var(--primary);font-weight:700;min-width:46px">${e.date.slice(5).replace("-",".")}</span><span>${esc(e.title)}</span></div>`).join("")}</div>`;
 }
 
 /* ---------------- 지각 체크 ---------------- */
@@ -292,7 +292,7 @@ function viewTardy(){
       <div class="row" style="margin-bottom:10px">
         <input type="date" id="tardyDate" value="${S.tardyDate}" />
       </div>
-      ${S.roster.length===0?`<p class="empty">먼저 <b>관리</b> 탭에서 학생을 등록하세요.</p>`:
+     ${S.roster.length===0?`<p class="empty"></p>`: 
       `<div class="chips">${S.roster.map(s=>`<div class="chip ${selectedTardy.has(s.id)?"sel":""}" data-action="tardy-chip" data-id="${s.id}">${esc(s.name)}${(cnt[s.id]||0)>0?`<span class="c">${cnt[s.id]}</span>`:""}</div>`).join("")}</div>
       <div class="row" style="margin-top:14px">
         <button class="btn" data-action="tardy-save" ${selectedTardy.size===0?"disabled":""}>지각 기록 저장${selectedTardy.size?` (${selectedTardy.size}명)`:""}</button>
@@ -301,12 +301,12 @@ function viewTardy(){
     </div>
     <div class="card">
       <h3>${fmtK(S.tardyDate)} 지각한 사람<span class="count">${recorded.length}명</span></h3>
-      ${recorded.length===0?`<p class="empty">이 날 기록이 없어요.</p>`:
+      ${recorded.length===0?`<p class="empty">기록 없음</p>`:
         `<div class="row">${recorded.map(id=>`<span class="tagrm">${esc(nameOf(id))}<button data-action="tardy-remove" data-id="${id}">×</button></span>`).join("")}</div>`}
     </div>
     <div class="card">
-      <h3>이번 주 누적 (주 3회 = 당번)</h3>
-      ${over.length===0?`<p class="empty">이번 주 지각 기록이 없어요.</p>`:
+      <h3>이번 주 누적</h3>
+      ${over.length===0?`<p class="empty">이번 주 지각 기록 없음</p>`:
         over.map(s=>`<div class="item"><span class="t">${esc(s.name)}</span><span class="d"><span class="dday ${cnt[s.id]>=3?"near":"soon"}">${cnt[s.id]}회</span></span></div>`).join("")}
     </div>
   </div>`;
@@ -324,11 +324,9 @@ function viewAssess(){
         <input id="asDate" type="date" />
         <button class="btn" data-action="assess-add">추가</button>
       </div>
-      <p class="hint">과목별로 등록하면, 각자 <b>내 페이지</b>에서 자기 선택과목 수행평가만 보여줘요.</p>
-    </div>
     <div class="card">
       <h3>전체 수행평가 일정<span class="count">${sorted.length}개</span></h3>
-      ${sorted.length===0?`<p class="empty">등록된 수행평가가 없어요.</p>`:sorted.map(a=>{
+      ${sorted.length===0?`<p class="empty">수행평가 없음</p>`:sorted.map(a=>{
         const ov=a.overrides||{}, ovk=Object.keys(ov);
         const takers=S.roster.filter(s=>s.subjects.includes(a.subject));
         return `<div style="border-top:1px solid var(--line);padding:11px 0">
@@ -355,7 +353,7 @@ function viewAssess(){
 
 /* ---------------- 내 페이지 ---------------- */
 function viewMe(){
-  if(S.roster.length===0) return `<div class="card"><p class="empty">먼저 <b>관리</b> 탭에서 학생을 등록하세요.</p></div>`;
+  if(S.roster.length===0) return `<div class="card"><p class="empty">기록 없음</p></div>`;
   const st=S.roster.find(s=>s.id===S.me)||S.roster[0]; S.me=st.id;
   const myAssess=S.assessments.filter(a=>st.subjects.includes(a.subject))
     .map(a=>{const md=(a.overrides&&a.overrides[st.id])||a.date;return {...a,myDate:md,dd:dday(md),adj:a.overrides&&a.overrides[st.id]};})
@@ -405,14 +403,11 @@ function viewManage(){
     <div class="card">
       <h3>학생 추가<span class="count">현재 ${S.roster.length}명</span></h3>
       <div class="row"><input id="stuName" placeholder="이름" /><button class="btn" data-action="stu-add">추가</button></div>
-      <p class="hint" style="margin-bottom:6px">여러 명은 한 번에 — 이름을 줄바꿈으로 붙여넣고 아래 버튼을 누르세요.</p>
-      <textarea id="stuBulk" placeholder="김민준&#10;이서연&#10;박지호"></textarea>
       <div class="row" style="margin-top:6px"><button class="btn ghost" data-action="stu-bulk">여러 명 한 번에 추가</button></div>
     </div>
     <div class="card">
       <h3>선택과목 설정 (학생별)</h3>
-      <p class="hint" style="margin-top:0">공통(국어·영어·수학·한국사)은 기본, 아래에서 각자 선택과목을 켜고 끄세요.</p>
-      ${S.roster.length===0?`<p class="empty">아직 학생이 없어요.</p>`:S.roster.map(s=>`<div style="padding:12px 0;border-top:1px solid var(--line)">
+      ${S.roster.length===0?`<p class="empty">기록 없</p>`:S.roster.map(s=>`<div style="padding:12px 0;border-top:1px solid var(--line)">
         <div class="row" style="justify-content:space-between"><b style="font-size:15px">${esc(s.name)}</b><button class="btn danger mini" data-action="stu-del" data-id="${s.id}">삭제</button></div>
         <div class="subjbox">${ELECTIVES.map(sub=>`<label class="${s.subjects.includes(sub)?"on":""}" data-action="stu-subj" data-id="${s.id}" data-subj="${sub}">${sub}</label>`).join("")}</div>
       </div>`).join("")}
@@ -420,7 +415,7 @@ function viewManage(){
     <div class="card">
       <h3>학사 일정 관리</h3>
       <div class="row"><input id="evDate" type="date" /><input id="evTitle" placeholder="예: 9월 모의고사" style="flex:1;min-width:140px" /><button class="btn" data-action="event-add">추가</button></div>
-      <div style="margin-top:10px">${upEv.length===0?`<p class="empty">등록된 일정이 없어요.</p>`:upEv.map(e=>`<div class="item"><span class="t">${esc(e.title)}</span><span class="d"><div class="date">${fmtK(e.date)}</div></span><button class="btn danger mini" data-action="event-del" data-id="${e.id}">삭제</button></div>`).join("")}</div>
+      <div style="margin-top:10px">${upEv.length===0?`<p class="empty">일정 없</p>`:upEv.map(e=>`<div class="item"><span class="t">${esc(e.title)}</span><span class="d"><div class="date">${fmtK(e.date)}</div></span><button class="btn danger mini" data-action="event-del" data-id="${e.id}">삭제</button></div>`).join("")}</div>
     </div>
   </div>`;
 }
