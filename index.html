@@ -160,7 +160,7 @@ const getMe=()=>{try{const v=localStorage.getItem("myId");return v?Number(v):nul
 const setMeLocal=id=>{try{localStorage.setItem("myId",id);}catch{}};
 
 /* ---------------- 상태 ---------------- */
-let S={ tab:"home", roster:[], assessments:[], events:[], tardy:{}, todos:{},
+let S={ tab:"home", roster:[], assessments:[], events:[], tardy:{}, todos:{}, duty:{},
         me:getMe(), editTT:false, tardyDate:iso(new Date()), openOvr:new Set(),
         tardyUnlocked:false, loading:true, error:null };
 let selectedTardy=new Set();
@@ -172,19 +172,21 @@ function flash(msg="저장됨"){const e=document.getElementById("saving");e.text
 /* ---------------- 데이터 로드 ---------------- */
 async function loadAll(){
   try{
-    const [st,as,ev,tr,td]=await Promise.all([
+    const [st,as,ev,tr,td,dr]=await Promise.all([
       db.from("students").select("*").order("id"),
       db.from("assessments").select("*").order("date"),
       db.from("events").select("*").order("date"),
       db.from("tardy_records").select("*"),
       db.from("todos").select("*"),
+      db.from("duty_roles").select("*"),
     ]);
-    const err=st.error||as.error||ev.error||tr.error||td.error;
+    const err=st.error||as.error||ev.error||tr.error||td.error||dr.error;
     if(err) throw err;
     S.roster=(st.data||[]).map(r=>({id:r.id,name:r.name,subjects:r.subjects||[],timetable:r.timetable||[]}));
     S.assessments=(as.data||[]).map(r=>({id:r.id,subject:r.subject,title:r.title,date:r.date,overrides:r.overrides||{}}));
     S.events=(ev.data||[]).map(r=>({id:r.id,date:r.date,title:r.title}));
     S.tardy={}; (tr.data||[]).forEach(r=>{(S.tardy[r.date]=S.tardy[r.date]||[]).push(r.student_id);});
+    S.duty={}; (dr.data||[]).forEach(r=>{S.duty[r.date]={lock:r.lock_id,board:r.board_id};});
     S.todos={}; (td.data||[]).forEach(r=>{(S.todos[r.student_id]=S.todos[r.student_id]||[]).push({id:r.id,text:r.text,done:r.done});});
     if(S.me && !S.roster.some(s=>s.id===S.me)) S.me=null;
     if(!S.me && S.roster.length) S.me=S.roster[0].id;
@@ -243,6 +245,9 @@ function viewHome(){
   const duty=S.roster.filter(s=>(cnt[s.id]||0)>=3).sort((a,b)=>(cnt[b.id]||0)-(cnt[a.id]||0));
   const dayTot=dates.slice(0,5).map(d=>(S.tardy[d]||[]).length);
   const up=S.assessments.map(a=>({...a,dd:dday(a.date)})).filter(a=>a.dd>=0).sort((a,b)=>a.dd-b.dd).slice(0,4);
+  const today=iso(new Date());
+  const todayTardy=S.tardy[today]||[];
+  const dr=S.duty[today]||{};
   return `<div class="grid">
     <div class="card duty">
       <div class="when">다음 대청소 · ${nextMon.getMonth()+1}월 ${nextMon.getDate()}일 (월)</div>
@@ -254,7 +259,15 @@ function viewHome(){
       <div class="card">
         <h3>이번 주 지각 현황<span class="count" data-action="tab" data-tab="tardy">체크하러 →</span></h3>
         <div class="wk">${["월","화","수","목","금"].map((d,i)=>`<div class="day ${dayTot[i]>0?"hot":""}"><div class="lab">${d}</div><div class="n">${dayTot[i]}</div></div>`).join("")}</div>
-        <p class="hint">주 3회 이상 -> 월요일 대청소</p>
+        <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px">
+          <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:8px">오늘 지각 (${todayTardy.length}명)</div>
+          ${todayTardy.length===0?`<p class="empty" style="padding:0">오늘 지각 없음</p>`:
+            `<div class="row">${todayTardy.map(id=>`<span class="tag subj">${esc(nameOf(id))}</span>`).join("")}</div>`}
+          <div class="row" style="margin-top:10px;gap:8px">
+            <span class="tagrm" style="background:#EEF1FF;color:#3B4CCA">🔒 문잠그기 · ${dr.lock?esc(nameOf(dr.lock)):"미정"}</span>
+            <span class="tagrm" style="background:var(--primary-soft);color:var(--primary-d)">🧽 칠판닦기 · ${dr.board?esc(nameOf(dr.board)):"미정"}</span>
+          </div>
+        </div>
       </div>
       <div class="card"><h3>학사 일정</h3>${calendarHTML()}</div>
     </div>
@@ -304,7 +317,8 @@ function viewTardy(){
       </div>`}
     </div>` : `
     <div class="card">
-      <h3>🔒 지각 체크 잠금 </h3>
+      <h3>🔒 지각 체크는 관리자만</h3>
+      <p class="hint" style="margin-top:0">기록·수정은 잠겨 있어요. 현황은 아래에서 볼 수 있어요.</p>
       <div class="row" style="margin-top:6px">
         <input type="password" id="tardyPw" placeholder="관리자 비밀번호" style="flex:1;min-width:160px" />
         <button class="btn" data-action="tardy-unlock">잠금 해제</button>
@@ -327,7 +341,27 @@ function viewTardy(){
         over.map(s=>`<div class="item"><span class="t">${esc(s.name)}</span><span class="d"><span class="dday ${cnt[s.id]>=3?"near":"soon"}">${cnt[s.id]}회</span></span></div>`).join("")}
     </div>`;
 
-  return `<div class="grid">${lockCard}${recCard}${sumCard}</div>`;
+  const drSel=S.duty[S.tardyDate]||{};
+  const dutyCard = (U && recorded.length>0) ? `
+    <div class="card">
+      <h3>오늘 담당 지정 (그날 지각자 중)</h3>
+      <p class="hint" style="margin-top:0">제일 늦은 사람 = 문잠그기, 두 번째로 늦은 사람 = 칠판닦기</p>
+      <div class="row" style="margin-top:6px">
+        <div style="flex:1;min-width:140px">
+          <div style="font-size:12px;color:var(--muted);margin-bottom:4px">🔒 문잠그기 (제일 늦음)</div>
+          <select id="dutyLock" style="width:100%"><option value="">— 선택 —</option>${recorded.map(id=>`<option value="${id}" ${drSel.lock===id?"selected":""}>${esc(nameOf(id))}</option>`).join("")}</select>
+        </div>
+        <div style="flex:1;min-width:140px">
+          <div style="font-size:12px;color:var(--muted);margin-bottom:4px">🧽 칠판닦기 (두 번째)</div>
+          <select id="dutyBoard" style="width:100%"><option value="">— 선택 —</option>${recorded.map(id=>`<option value="${id}" ${drSel.board===id?"selected":""}>${esc(nameOf(id))}</option>`).join("")}</select>
+        </div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn" data-action="duty-save">담당 저장</button>
+      </div>
+    </div>` : "";
+
+  return `<div class="grid">${lockCard}${recCard}${dutyCard}${sumCard}</div>`;
 }
 
 /* ---------------- 수행평가 ---------------- */
@@ -388,10 +422,14 @@ function viewMe(){
     </div>
     <div class="card">
       <h3>내 수행평가<span class="count">내 선택과목만</span></h3>
-      ${myAssess.length===0?`<p class="empty">수행평가 없음</p>`:myAssess.map(a=>`<div class="item">
+      ${myAssess.length===0?`<p class="empty">수행평가 없음</p>`:myAssess.map(a=>`<div class="item" style="flex-wrap:wrap">
         <span class="tag subj">${esc(a.subject)}</span>
-        <span class="t">${esc(a.title)}${a.adj?`<span class="varies">내 날짜 조정됨</span>`:""}</span>
-        <span class="d"><span class="dday ${ddayClass(a.dd)}">${a.dd>=0?ddayLabel(a.dd):"지남"}</span><div class="date">${fmtK(a.myDate)}</div></span></div>`).join("")}
+        <span class="t">${esc(a.title)}${a.adj?`<span class="varies">내 날짜</span>`:""}</span>
+        <span class="d"><span class="dday ${ddayClass(a.dd)}">${a.dd>=0?ddayLabel(a.dd):"지남"}</span></span>
+        <div class="row" style="width:100%;margin-top:6px;gap:6px">
+          <input type="date" data-action="me-date" data-id="${a.id}" value="${a.myDate}" style="padding:6px 8px" />
+          ${a.adj?`<button class="btn ghost mini" data-action="me-date-reset" data-id="${a.id}">기본 날짜로</button>`:`<span class="hint" style="margin:0">내 시간표에 맞게 날짜 조정 가능</span>`}
+        </div></div>`).join("")}
     </div>
     <div class="card">
       <h3>내 시간표<span class="count" data-action="tt-edit">${S.editTT?"완료":"편집 →"}</span></h3>
@@ -447,7 +485,7 @@ function wire(){
   const root=app();
   root.querySelectorAll("[data-action]").forEach(el=>{
     const a=el.dataset.action;
-    if(a==="tt-cell"||a==="todo-toggle"){ el.addEventListener("change",()=>onAction(a,el)); }
+    if(a==="tt-cell"||a==="todo-toggle"||a==="me-date"){ el.addEventListener("change",()=>onAction(a,el)); }
     else { el.addEventListener("click",()=>onAction(a,el)); }
   });
   const meSel=root.querySelector("#meSel");
@@ -473,6 +511,11 @@ async function onAction(a,el){
       if(pw===TARDY_PW){S.tardyUnlocked=true;render();}
       else{alert("비밀번호가 틀렸어요.");} break;}
     case "tardy-lock": S.tardyUnlocked=false; selectedTardy=new Set(); render(); break;
+    case "duty-save":{const lockV=V("dutyLock").value, boardV=V("dutyBoard").value;
+      const lock=lockV?num(lockV):null, board=boardV?num(boardV):null; const date=S.tardyDate;
+      const {error}=await db.from("duty_roles").upsert({date,lock_id:lock,board_id:board});
+      if(error){alert("저장 실패: "+error.message);return;}
+      S.duty[date]={lock,board}; flash(); render(); break;}
     case "tardy-chip":{const id=num(el.dataset.id); if(selectedTardy.has(id))selectedTardy.delete(id);else selectedTardy.add(id);
       el.classList.toggle("sel"); const btn=app().querySelector('[data-action="tardy-save"]');
       if(btn){btn.disabled=selectedTardy.size===0;btn.textContent=`지각 기록 저장${selectedTardy.size?` (${selectedTardy.size}명)`:""}`;} break;}
@@ -540,8 +583,7 @@ async function onAction(a,el){
       s.subjects=subs; flash(); render(); break;}
 
     /* 시간표 */
-    case "tt-edit": S.editTT=!S.editTT; render(); break;
-    case "tt-cell":{const di=num(el.dataset.di),pi=num(el.dataset.pi); const s=S.roster.find(x=>x.id===S.me);
+    case "tt-edit": S.editTT=!S.editTT; render(); break;    case "tt-cell":{const di=num(el.dataset.di),pi=num(el.dataset.pi); const s=S.roster.find(x=>x.id===S.me);
       let tt=(s.timetable&&s.timetable.length===5)?s.timetable.map(r=>[...r]):Array.from({length:5},()=>Array(7).fill(""));
       tt[di][pi]=el.value; const {error}=await db.from("students").update({timetable:tt}).eq("id",S.me);
       if(error){alert("저장 실패: "+error.message);return;} s.timetable=tt; flash(); break;}
@@ -557,6 +599,16 @@ async function onAction(a,el){
     case "todo-del":{const id=num(el.dataset.id);
       const {error}=await db.from("todos").delete().eq("id",id); if(error){alert("삭제 실패: "+error.message);return;}
       S.todos[S.me]=(S.todos[S.me]||[]).filter(x=>x.id!==id); flash("삭제됨"); render(); break;}
+
+    /* 개인 수행평가 날짜 수정 */
+    case "me-date":{const id=num(el.dataset.id); const date=el.value; if(!date)break;
+      const a=S.assessments.find(x=>x.id===id); const ov={...(a.overrides||{}),[S.me]:date};
+      const {error}=await db.from("assessments").update({overrides:ov}).eq("id",id);
+      if(error){alert("저장 실패: "+error.message);return;} a.overrides=ov; flash(); render(); break;}
+    case "me-date-reset":{const id=num(el.dataset.id);
+      const a=S.assessments.find(x=>x.id===id); const ov={...(a.overrides||{})}; delete ov[S.me];
+      const {error}=await db.from("assessments").update({overrides:ov}).eq("id",id);
+      if(error){alert("저장 실패: "+error.message);return;} a.overrides=ov; flash("기본 날짜로"); render(); break;}
   }
 }
 
