@@ -160,8 +160,9 @@ const getMe=()=>{try{const v=localStorage.getItem("myId");return v?Number(v):nul
 const setMeLocal=id=>{try{localStorage.setItem("myId",id);}catch{}};
 
 /* ---------------- 상태 ---------------- */
-let S={ tab:"home", roster:[], assessments:[], events:[], tardy:{}, todos:{}, duty:{},
-        me:getMe(), editTT:false, tardyDate:iso(new Date()), openOvr:new Set(),
+let S={ tab:"home", roster:[], assessments:[], events:[], tardy:{}, todos:{}, duty:{}, phone:{},
+        me:getMe(), editTT:false, tardyDate:iso(new Date()), phoneDate:iso(new Date()),
+        openOvr:new Set(), openDetail:new Set(), showHidden:false,
         tardyUnlocked:false, loading:true, error:null };
 let selectedTardy=new Set();
 
@@ -172,22 +173,24 @@ function flash(msg="저장됨"){const e=document.getElementById("saving");e.text
 /* ---------------- 데이터 로드 ---------------- */
 async function loadAll(){
   try{
-    const [st,as,ev,tr,td,dr]=await Promise.all([
+    const [st,as,ev,tr,td,dr,po]=await Promise.all([
       db.from("students").select("*").order("id"),
       db.from("assessments").select("*").order("date"),
       db.from("events").select("*").order("date"),
       db.from("tardy_records").select("*"),
       db.from("todos").select("*"),
       db.from("duty_roles").select("*"),
+      db.from("phone_optouts").select("*"),
     ]);
-    const err=st.error||as.error||ev.error||tr.error||td.error||dr.error;
+    const err=st.error||as.error||ev.error||tr.error||td.error||dr.error||po.error;
     if(err) throw err;
-    S.roster=(st.data||[]).map(r=>({id:r.id,name:r.name,subjects:r.subjects||[],timetable:r.timetable||[]}));
-    S.assessments=(as.data||[]).map(r=>({id:r.id,subject:r.subject,title:r.title,date:r.date,overrides:r.overrides||{}}));
+    S.roster=(st.data||[]).map(r=>({id:r.id,name:r.name,subjects:r.subjects||[],timetable:r.timetable||[],hidden:r.hidden||[]}));
+    S.assessments=(as.data||[]).map(r=>({id:r.id,subject:r.subject,title:r.title,date:r.date,overrides:r.overrides||{},detail:r.detail||"",photo:r.photo||""}));
     S.events=(ev.data||[]).map(r=>({id:r.id,date:r.date,title:r.title}));
     S.tardy={}; (tr.data||[]).forEach(r=>{(S.tardy[r.date]=S.tardy[r.date]||[]).push(r.student_id);});
     S.duty={}; (dr.data||[]).forEach(r=>{S.duty[r.date]={lock:r.lock_id,board:r.board_id};});
     S.todos={}; (td.data||[]).forEach(r=>{(S.todos[r.student_id]=S.todos[r.student_id]||[]).push({id:r.id,text:r.text,done:r.done});});
+    S.phone={}; (po.data||[]).forEach(r=>{(S.phone[r.date]=S.phone[r.date]||[]).push({id:r.id,student_id:r.student_id,reason:r.reason});});
     if(S.me && !S.roster.some(s=>s.id===S.me)) S.me=null;
     if(!S.me && S.roster.length) S.me=S.roster[0].id;
     S.loading=false; S.error=null; render();
@@ -214,10 +217,11 @@ function render(){
   }
   const now=new Date();
   const todayStr=`${now.getFullYear()}. ${now.getMonth()+1}. ${now.getDate()}. ${"일월화수목금토"[now.getDay()]}요일`;
-  const TABS=[["home","홈"],["tardy","지각 체크"],["assess","수행평가"],["me","내 페이지"],["manage","관리"]];
+  const TABS=[["home","홈"],["tardy","지각 체크"],["phone","휴대폰"],["assess","수행평가"],["me","내 페이지"],["manage","관리"]];
   let body="";
   if(S.tab==="home") body=viewHome();
   else if(S.tab==="tardy") body=viewTardy();
+  else if(S.tab==="phone") body=viewPhone();
   else if(S.tab==="assess") body=viewAssess();
   else if(S.tab==="me") body=viewMe();
   else if(S.tab==="manage") body=viewManage();
@@ -238,6 +242,30 @@ function weekInfo(){
 }
 const nameOf=id=>S.roster.find(s=>s.id===id)?.name||"";
 
+/* 지난주 지각 집계 (이번 주 월~화 청소 당번 확인용) */
+function lastWeekCount(){
+  const lwMon=addDays(mondayOf(new Date()),-7);
+  const dates=Array.from({length:7},(_,i)=>iso(addDays(lwMon,i)));
+  const cnt={}; dates.forEach(d=>(S.tardy[d]||[]).forEach(id=>cnt[id]=(cnt[id]||0)+1));
+  return {lwMon,cnt};
+}
+
+/* 사진 용량 줄이기 (업로드 전) */
+function compressImage(file,maxDim=1000,q=0.6){
+  return new Promise((resolve,reject)=>{
+    const img=new Image(); const url=URL.createObjectURL(file);
+    img.onload=()=>{ URL.revokeObjectURL(url);
+      let w=img.width,h=img.height;
+      if(w>h&&w>maxDim){h=Math.round(h*maxDim/w);w=maxDim;}
+      else if(h>=w&&h>maxDim){w=Math.round(w*maxDim/h);h=maxDim;}
+      const c=document.createElement("canvas"); c.width=w; c.height=h;
+      c.getContext("2d").drawImage(img,0,0,w,h);
+      try{resolve(c.toDataURL("image/jpeg",q));}catch(e){reject(e);} };
+    img.onerror=()=>{URL.revokeObjectURL(url);reject(new Error("이미지를 읽지 못했어요"));};
+    img.src=url;
+  });
+}
+
 /* ---------------- 홈 ---------------- */
 function viewHome(){
   const {wm,dates,cnt}=weekInfo();
@@ -248,12 +276,27 @@ function viewHome(){
   const today=iso(new Date());
   const todayTardy=S.tardy[today]||[];
   const dr=S.duty[today]||{};
+  const dow=new Date().getDay();
+  const {cnt:lwCnt}=lastWeekCount();
+  const lwDuty=S.roster.filter(s=>(lwCnt[s.id]||0)>=3).sort((a,b)=>(lwCnt[b.id]||0)-(lwCnt[a.id]||0));
+  const todayPhone=S.phone[today]||[];
   return `<div class="grid">
     <div class="card duty">
       <div class="when">다음 대청소 · ${nextMon.getMonth()+1}월 ${nextMon.getDate()}일 (월)</div>
       <h3 style="margin-top:2px">3회 이상 지각 -> 대청소</h3>
       ${duty.length===0?`<div class="empty">당번 없음</div>`
         :`<div class="names">${duty.map(s=>`<span class="pill">${esc(s.name)}<b>${cnt[s.id]}회</b></span>`).join("")}</div>`}
+    </div>
+    ${(dow===1||dow===2)?`<div class="card" style="border-color:var(--rose);background:var(--rose-soft)">
+      <h3 style="color:var(--rose)">🧹 이번 주 청소 당번 (지난주 지각 3회 이상)</h3>
+      ${lwDuty.length===0?`<p class="empty" style="padding:0">지난주 3회 이상 지각자 없음</p>`
+        :`<div class="row">${lwDuty.map(s=>`<span class="tagrm" style="background:#fff;color:var(--rose)">${esc(s.name)} · ${lwCnt[s.id]}회</span>`).join("")}</div>`}
+      <p class="hint" style="color:var(--rose);margin-top:8px">월·화요일 청소 담당이에요.</p>
+    </div>`:""}
+    <div class="card">
+      <h3>오늘 휴대폰 미제출 신청<span class="count" data-action="tab" data-tab="phone">신청하기 →</span></h3>
+      ${todayPhone.length===0?`<p class="empty" style="padding:0">오늘 신청자 없음 (전원 제출)</p>`
+        :todayPhone.map(p=>`<div class="item"><span class="t">${esc(nameOf(p.student_id))}</span><span class="d" style="font-weight:500;color:var(--muted);white-space:normal;text-align:left;max-width:60%">${esc(p.reason||"")}</span></div>`).join("")}
     </div>
     <div class="grid g2" style="margin-top:0">
       <div class="card">
@@ -275,9 +318,11 @@ function viewHome(){
       <h3>다가오는 수행평가<span class="count">전체 과목</span></h3>
       ${up.length===0?`<p class="empty">예정된 수행평가 없음</p>`
         :up.map(a=>{const v=Object.keys(a.overrides||{}).length>0;
-          return `<div class="item"><span class="tag subj">${esc(a.subject)}</span>
+          return `<div class="item" style="flex-wrap:wrap"><span class="tag subj">${esc(a.subject)}</span>
             <span class="t">${esc(a.title)}${v?`<span class="varies">개인별 상이</span>`:""}</span>
-            <span class="d"><span class="dday ${ddayClass(a.dd)}">${ddayLabel(a.dd)}</span><div class="date">${fmtK(a.date)}</div></span></div>`;}).join("")}
+            <span class="d"><span class="dday ${ddayClass(a.dd)}">${ddayLabel(a.dd)}</span><div class="date">${fmtK(a.date)}</div></span>
+            ${(a.detail||a.photo)?`<div style="width:100%;margin-top:6px"><button class="btn ghost mini" data-action="detail-open" data-id="${a.id}">상세 ${S.openDetail.has(a.id)?"닫기":"보기"}</button>${S.openDetail.has(a.id)?`<div class="ovr">${a.detail?`<div style="font-size:13px;white-space:pre-wrap;line-height:1.6">${esc(a.detail)}</div>`:""}${a.photo?`<div style="margin-top:8px"><img src="${a.photo}" style="max-width:100%;border-radius:10px;border:1px solid var(--line)" /></div>`:""}</div>`:""}</div>`:""}
+            </div>`;}).join("")}
     </div>
   </div>`;
 }
@@ -364,6 +409,41 @@ function viewTardy(){
   return `<div class="grid">${lockCard}${recCard}${dutyCard}${sumCard}</div>`;
 }
 
+/* ---------------- 휴대폰 미제출 신청 ---------------- */
+function viewPhone(){
+  const list=S.phone[S.phoneDate]||[];
+  return `<div class="grid">
+    <div class="card" style="background:var(--amber-soft);border-color:#F5D9A8">
+      <h3 style="color:var(--amber)">📵 휴대폰 미제출 신청 안내</h3>
+      <div style="font-size:13px;color:#8a5a12;line-height:1.7">
+        <p style="margin-bottom:6px"><b>1.</b> 학교 교칙상 휴대폰은 <b>매일 제출</b>하는 것이 기본입니다.</p>
+        <p style="margin-bottom:6px"><b>2.</b> 교육활동·수행평가 참여, 학생회, 동아리, 기타 학교 활동 및 개인적 사정으로 미제출을 희망하는 사람은 <b>해당일 아침에 신청</b>하고 <b>본인이 관리</b>합니다.</p>
+        <p><b>3.</b> 단, 수업시간 및 사용해서는 안 되는 시간에 사용하다 적발되는 경우 <b>이후 휴대폰 미제출이 불가</b>합니다.</p>
+      </div>
+    </div>
+    <div class="card">
+      <h3>미제출 신청</h3>
+      <div class="row" style="margin-bottom:8px">
+        <input type="date" id="phoneDate" value="${S.phoneDate}" />
+      </div>
+      ${S.roster.length===0?`<p class="empty">먼저 관리 탭에서 학생을 등록하세요.</p>`:`
+      <div class="row">
+        <select id="phoneName" style="min-width:120px">${S.roster.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join("")}</select>
+        <input id="phoneReason" placeholder="사유 (예: 수행평가 촬영, 동아리 활동)" style="flex:1;min-width:160px" />
+        <button class="btn" data-action="phone-add">신청</button>
+      </div>`}
+      <p class="hint">본인 이름을 고르고 사유를 적어 신청하세요. 거짓 신청은 교칙에 따라 불이익이 있을 수 있어요.</p>
+    </div>
+    <div class="card">
+      <h3>${fmtK(S.phoneDate)} 미제출 신청자<span class="count">${list.length}명</span></h3>
+      ${list.length===0?`<p class="empty">신청자가 없어요.</p>`:list.map(p=>`<div class="item">
+        <span class="t">${esc(nameOf(p.student_id))}</span>
+        <span style="flex:1;font-size:13px;color:var(--muted)">${esc(p.reason||"")}</span>
+        <button class="btn danger mini" data-action="phone-del" data-id="${p.id}">취소</button></div>`).join("")}
+    </div>
+  </div>`;
+}
+
 /* ---------------- 수행평가 ---------------- */
 function viewAssess(){
   const sorted=[...S.assessments].sort((a,b)=>a.date.localeCompare(b.date));
@@ -387,9 +467,20 @@ function viewAssess(){
             <span class="tag subj">${esc(a.subject)}</span>
             <span class="t">${esc(a.title)}${ovk.length?`<span class="varies">개인별 ${ovk.length}명 조정됨</span>`:""}</span>
             <span class="d"><div class="date">${fmtK(a.date)}</div></span>
+            <button class="btn ghost mini" data-action="detail-open" data-id="${a.id}">상세${(a.detail||a.photo)?" ●":""}</button>
             <button class="btn ghost mini" data-action="ovr-open" data-id="${a.id}">개인별</button>
             <button class="btn danger mini" data-action="assess-del" data-id="${a.id}">삭제</button>
           </div>
+          ${S.openDetail.has(a.id)?`<div class="ovr">
+            <div class="sectlead" style="font-size:12px;color:var(--muted);margin-bottom:6px">자세한 내용과 사진을 올리면 학생들이 각자 페이지에서 볼 수 있어요.</div>
+            <textarea id="detailText-${a.id}" placeholder="수행평가 상세 내용 (범위, 준비물, 방식 등)">${esc(a.detail||"")}</textarea>
+            ${a.photo?`<div style="margin-top:8px"><img src="${a.photo}" style="max-width:100%;border-radius:10px;border:1px solid var(--line)" /></div>`:""}
+            <div class="row" style="margin-top:8px">
+              <button class="btn mini" data-action="detail-save" data-id="${a.id}">내용 저장</button>
+              <label class="btn ghost mini" style="cursor:pointer">사진 올리기<input type="file" accept="image/*" data-action="assess-photo" data-id="${a.id}" style="display:none" /></label>
+              ${a.photo?`<button class="btn danger mini" data-action="photo-del" data-id="${a.id}">사진 삭제</button>`:""}
+            </div>
+          </div>`:""}
           ${S.openOvr.has(a.id)?`<div class="ovr">
             <div class="sectlead" style="font-size:12px;color:var(--muted);margin-bottom:6px">특정 학생만 날짜가 하루이틀 다를 때 조정하세요.</div>
             <div class="row">
@@ -408,9 +499,12 @@ function viewAssess(){
 function viewMe(){
   if(S.roster.length===0) return `<div class="card"><p class="empty">기록 없음</p></div>`;
   const st=S.roster.find(s=>s.id===S.me)||S.roster[0]; S.me=st.id;
-  const myAssess=S.assessments.filter(a=>st.subjects.includes(a.subject))
+  const hiddenSet=new Set(st.hidden||[]);
+  const allMine=S.assessments.filter(a=>st.subjects.includes(a.subject))
     .map(a=>{const md=(a.overrides&&a.overrides[st.id])||a.date;return {...a,myDate:md,dd:dday(md),adj:a.overrides&&a.overrides[st.id]};})
     .sort((a,b)=>a.myDate.localeCompare(b.myDate));
+  const myAssess=allMine.filter(a=>!hiddenSet.has(a.id));
+  const myHidden=allMine.filter(a=>hiddenSet.has(a.id));
   const tt=(st.timetable&&st.timetable.length===5)?st.timetable:Array.from({length:5},()=>Array(7).fill(""));
   const opts=["",...COMMON,...st.subjects.filter(s=>!COMMON.includes(s)),"자율","동아리","창체"];
   const myTodos=S.todos[st.id]||[];
@@ -428,8 +522,19 @@ function viewMe(){
         <span class="d"><span class="dday ${ddayClass(a.dd)}">${a.dd>=0?ddayLabel(a.dd):"지남"}</span></span>
         <div class="row" style="width:100%;margin-top:6px;gap:6px">
           <input type="date" data-action="me-date" data-id="${a.id}" value="${a.myDate}" style="padding:6px 8px" />
-          ${a.adj?`<button class="btn ghost mini" data-action="me-date-reset" data-id="${a.id}">기본 날짜로</button>`:`<span class="hint" style="margin:0">내 시간표에 맞게 날짜 조정 가능</span>`}
-        </div></div>`).join("")}
+          ${a.adj?`<button class="btn ghost mini" data-action="me-date-reset" data-id="${a.id}">기본 날짜로</button>`:""}
+          ${(a.detail||a.photo)?`<button class="btn ghost mini" data-action="detail-open" data-id="${a.id}">상세 ${S.openDetail.has(a.id)?"닫기":"보기"}</button>`:""}
+          <button class="btn danger mini" data-action="me-assess-hide" data-id="${a.id}">삭제</button>
+        </div>
+        ${S.openDetail.has(a.id)&&(a.detail||a.photo)?`<div class="ovr" style="width:100%">
+          ${a.detail?`<div style="font-size:13px;white-space:pre-wrap;line-height:1.6">${esc(a.detail)}</div>`:""}
+          ${a.photo?`<div style="margin-top:8px"><img src="${a.photo}" style="max-width:100%;border-radius:10px;border:1px solid var(--line)" /></div>`:""}
+        </div>`:""}
+        </div>`).join("")}
+      ${myHidden.length>0?`<div style="margin-top:10px;border-top:1px solid var(--line);padding-top:10px">
+        <span class="count" style="cursor:pointer;background:var(--bg);padding:4px 10px;border-radius:20px;font-size:12px;color:var(--muted)" data-action="hidden-toggle">${S.showHidden?"숨긴 항목 닫기":`끝난 수행평가 ${myHidden.length}개 보기`}</span>
+        ${S.showHidden?myHidden.map(a=>`<div class="item"><span class="tag subj">${esc(a.subject)}</span><span class="t" style="color:var(--muted)">${esc(a.title)}</span><button class="btn ghost mini" data-action="me-assess-unhide" data-id="${a.id}">복원</button></div>`).join(""):""}
+      </div>`:""}
     </div>
     <div class="card">
       <h3>내 시간표<span class="count" data-action="tt-edit">${S.editTT?"완료":"편집 →"}</span></h3>
@@ -485,13 +590,17 @@ function wire(){
   const root=app();
   root.querySelectorAll("[data-action]").forEach(el=>{
     const a=el.dataset.action;
-    if(a==="tt-cell"||a==="todo-toggle"||a==="me-date"){ el.addEventListener("change",()=>onAction(a,el)); }
+    if(a==="tt-cell"||a==="todo-toggle"||a==="me-date"||a==="assess-photo"){ el.addEventListener("change",()=>onAction(a,el)); }
     else { el.addEventListener("click",()=>onAction(a,el)); }
   });
   const meSel=root.querySelector("#meSel");
   if(meSel) meSel.addEventListener("change",()=>{S.me=Number(meSel.value);setMeLocal(S.me);S.editTT=false;render();});
   const td=root.querySelector("#tardyDate");
   if(td) td.addEventListener("change",()=>{S.tardyDate=td.value;render();});
+  const pd=root.querySelector("#phoneDate");
+  if(pd) pd.addEventListener("change",()=>{S.phoneDate=pd.value;render();});
+  const pr=root.querySelector("#phoneReason");
+  if(pr) pr.addEventListener("keydown",e=>{if(e.key==="Enter")onAction("phone-add");});
   const todoInput=root.querySelector("#todoInput");
   if(todoInput) todoInput.addEventListener("keydown",e=>{if(e.key==="Enter")onAction("todo-add");});
   const stuName=root.querySelector("#stuName");
@@ -609,6 +718,44 @@ async function onAction(a,el){
       const a=S.assessments.find(x=>x.id===id); const ov={...(a.overrides||{})}; delete ov[S.me];
       const {error}=await db.from("assessments").update({overrides:ov}).eq("id",id);
       if(error){alert("저장 실패: "+error.message);return;} a.overrides=ov; flash("기본 날짜로"); render(); break;}
+
+    /* 휴대폰 미제출 */
+    case "phone-add":{const sid=num(V("phoneName").value); const reason=V("phoneReason").value.trim();
+      const date=S.phoneDate; const exist=(S.phone[date]||[]).some(p=>p.student_id===sid);
+      if(exist){alert("이미 신청되어 있어요.");return;}
+      const id=genId(); const {error}=await db.from("phone_optouts").insert([{id,date,student_id:sid,reason}]);
+      if(error){alert("저장 실패: "+error.message);return;}
+      (S.phone[date]=S.phone[date]||[]).push({id,student_id:sid,reason}); flash("신청됨"); render(); break;}
+    case "phone-del":{const id=num(el.dataset.id); const date=S.phoneDate;
+      const {error}=await db.from("phone_optouts").delete().eq("id",id); if(error){alert("삭제 실패: "+error.message);return;}
+      S.phone[date]=(S.phone[date]||[]).filter(p=>p.id!==id); flash("취소됨"); render(); break;}
+
+    /* 수행평가 상세·사진 */
+    case "detail-open":{const id=num(el.dataset.id); if(S.openDetail.has(id))S.openDetail.delete(id);else S.openDetail.add(id); render(); break;}
+    case "detail-save":{const id=num(el.dataset.id); const detail=V("detailText-"+id).value;
+      const a=S.assessments.find(x=>x.id===id);
+      const {error}=await db.from("assessments").update({detail}).eq("id",id); if(error){alert("저장 실패: "+error.message);return;}
+      a.detail=detail; flash(); render(); break;}
+    case "assess-photo":{const id=num(el.dataset.id); const file=el.files&&el.files[0]; if(!file)break;
+      flash("사진 처리 중…");
+      let dataUrl; try{dataUrl=await compressImage(file);}catch(e){alert("사진 처리 실패: "+e.message);return;}
+      const a=S.assessments.find(x=>x.id===id);
+      const {error}=await db.from("assessments").update({photo:dataUrl}).eq("id",id); if(error){alert("저장 실패: "+error.message+" (사진이 너무 클 수 있어요)");return;}
+      a.photo=dataUrl; flash("사진 저장됨"); render(); break;}
+    case "photo-del":{const id=num(el.dataset.id); const a=S.assessments.find(x=>x.id===id);
+      const {error}=await db.from("assessments").update({photo:null}).eq("id",id); if(error){alert("삭제 실패: "+error.message);return;}
+      a.photo=""; flash("사진 삭제됨"); render(); break;}
+
+    /* 개인 수행평가 숨기기(삭제)/복원 */
+    case "me-assess-hide":{const id=num(el.dataset.id); const s=S.roster.find(x=>x.id===S.me);
+      const hid=Array.from(new Set([...(s.hidden||[]),id]));
+      const {error}=await db.from("students").update({hidden:hid}).eq("id",S.me); if(error){alert("저장 실패: "+error.message);return;}
+      s.hidden=hid; flash("삭제됨"); render(); break;}
+    case "me-assess-unhide":{const id=num(el.dataset.id); const s=S.roster.find(x=>x.id===S.me);
+      const hid=(s.hidden||[]).filter(x=>x!==id);
+      const {error}=await db.from("students").update({hidden:hid}).eq("id",S.me); if(error){alert("복원 실패: "+error.message);return;}
+      s.hidden=hid; flash("복원됨"); render(); break;}
+    case "hidden-toggle": S.showHidden=!S.showHidden; render(); break;
   }
 }
 
