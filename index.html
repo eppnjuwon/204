@@ -285,7 +285,6 @@ function viewHome(){
       <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:14px">
         <h3 style="color:var(--ink);font-size:17px;margin:0">오늘 지각</h3>
         <span style="font-size:13px;color:var(--muted)">${fmtK(today)}</span>
-        <span class="count" data-action="tab" data-tab="tardy" style="margin-left:auto">체크하러 →</span>
       </div>
       ${todayTardy.length===0
         ? `<div style="font-size:22px;font-weight:800;color:#AEB6C2">오늘 지각 없음 👍</div>`
@@ -297,15 +296,14 @@ function viewHome(){
     </div>
     <div class="card duty">
       <div class="when">다음 대청소 · ${nextMon.getMonth()+1}월 ${nextMon.getDate()}일 (월)</div>
-      <h3 style="margin-top:2px">3회 이상 지각 -> 대청소</h3>
+      <h3 style="margin-top:2px">3회 이상 지각 -> 다음주 대청소</h3>
       ${duty.length===0?`<div class="empty">당번 없음</div>`
         :`<div class="names">${duty.map(s=>`<span class="pill">${esc(s.name)}<b>${cnt[s.id]}회</b></span>`).join("")}</div>`}
     </div>
     ${(dow===1||dow===2)?`<div class="card" style="border-left:4px solid var(--amber)">
-      <h3 style="color:var(--ink)">🧹 이번 주 청소 당번<span style="color:var(--muted);font-weight:600;margin-left:6px">지난주 지각 3회+</span></h3>
+      <h3 style="color:var(--ink)">이번 주 대청소<span style="color:var(--muted);font-weight:600;margin-left:6px">지난주 지각 3회+</span></h3>
       ${lwDuty.length===0?`<p class="empty" style="padding:0">지난주 3회 이상 지각자 없음</p>`
         :`<div class="row">${lwDuty.map(s=>`<span class="tag" style="background:var(--amber-soft);color:var(--amber);font-size:14px;padding:6px 11px">${esc(s.name)} · ${lwCnt[s.id]}회</span>`).join("")}</div>`}
-      <p class="hint" style="margin-top:8px">월·화요일 청소 담당이에요.</p>
     </div>`:""}
     <div class="card">
       <h3>오늘 휴대폰 미제출 신청<span class="count" data-action="tab" data-tab="phone">신청하기 →</span></h3>
