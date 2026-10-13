@@ -281,17 +281,31 @@ function viewHome(){
   const lwDuty=S.roster.filter(s=>(lwCnt[s.id]||0)>=3).sort((a,b)=>(lwCnt[b.id]||0)-(lwCnt[a.id]||0));
   const todayPhone=S.phone[today]||[];
   return `<div class="grid">
+    <div class="card" style="border-left:5px solid var(--ink)">
+      <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:14px">
+        <h3 style="color:var(--ink);font-size:17px;margin:0">오늘 지각</h3>
+        <span style="font-size:13px;color:var(--muted)">${fmtK(today)}</span>
+        <span class="count" data-action="tab" data-tab="tardy" style="margin-left:auto">체크하러 →</span>
+      </div>
+      ${todayTardy.length===0
+        ? `<div style="font-size:22px;font-weight:800;color:#AEB6C2">오늘 지각 없음 👍</div>`
+        : `<div style="display:flex;flex-wrap:wrap;gap:10px">${todayTardy.map(id=>`<span style="background:#EDF0F4;color:var(--ink);font-size:20px;font-weight:800;padding:12px 18px;border-radius:14px">${esc(nameOf(id))}</span>`).join("")}</div>`}
+      <div class="row" style="margin-top:16px;gap:8px">
+        <span class="tagrm" style="background:#EEF1FF;color:#3B4CCA">🔒 문잠그기 · ${dr.lock?esc(nameOf(dr.lock)):"미정"}</span>
+        <span class="tagrm" style="background:var(--primary-soft);color:var(--primary-d)">🧽 칠판닦기 · ${dr.board?esc(nameOf(dr.board)):"미정"}</span>
+      </div>
+    </div>
     <div class="card duty">
       <div class="when">다음 대청소 · ${nextMon.getMonth()+1}월 ${nextMon.getDate()}일 (월)</div>
       <h3 style="margin-top:2px">3회 이상 지각 -> 대청소</h3>
       ${duty.length===0?`<div class="empty">당번 없음</div>`
         :`<div class="names">${duty.map(s=>`<span class="pill">${esc(s.name)}<b>${cnt[s.id]}회</b></span>`).join("")}</div>`}
     </div>
-    ${(dow===1||dow===2)?`<div class="card" style="border-color:var(--rose);background:var(--rose-soft)">
-      <h3 style="color:var(--rose)">🧹 이번 주 청소 당번 (지난주 지각 3회 이상)</h3>
+    ${(dow===1||dow===2)?`<div class="card" style="border-left:4px solid var(--amber)">
+      <h3 style="color:var(--ink)">🧹 이번 주 청소 당번<span style="color:var(--muted);font-weight:600;margin-left:6px">지난주 지각 3회+</span></h3>
       ${lwDuty.length===0?`<p class="empty" style="padding:0">지난주 3회 이상 지각자 없음</p>`
-        :`<div class="row">${lwDuty.map(s=>`<span class="tagrm" style="background:#fff;color:var(--rose)">${esc(s.name)} · ${lwCnt[s.id]}회</span>`).join("")}</div>`}
-      <p class="hint" style="color:var(--rose);margin-top:8px">월·화요일 청소 담당이에요.</p>
+        :`<div class="row">${lwDuty.map(s=>`<span class="tag" style="background:var(--amber-soft);color:var(--amber);font-size:14px;padding:6px 11px">${esc(s.name)} · ${lwCnt[s.id]}회</span>`).join("")}</div>`}
+      <p class="hint" style="margin-top:8px">월·화요일 청소 담당이에요.</p>
     </div>`:""}
     <div class="card">
       <h3>오늘 휴대폰 미제출 신청<span class="count" data-action="tab" data-tab="phone">신청하기 →</span></h3>
@@ -302,15 +316,7 @@ function viewHome(){
       <div class="card">
         <h3>이번 주 지각 현황<span class="count" data-action="tab" data-tab="tardy">체크하러 →</span></h3>
         <div class="wk">${["월","화","수","목","금"].map((d,i)=>`<div class="day ${dayTot[i]>0?"hot":""}"><div class="lab">${d}</div><div class="n">${dayTot[i]}</div></div>`).join("")}</div>
-        <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px">
-          <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:8px">오늘 지각 (${todayTardy.length}명)</div>
-          ${todayTardy.length===0?`<p class="empty" style="padding:0">오늘 지각 없음</p>`:
-            `<div class="row">${todayTardy.map(id=>`<span class="tag subj">${esc(nameOf(id))}</span>`).join("")}</div>`}
-          <div class="row" style="margin-top:10px;gap:8px">
-            <span class="tagrm" style="background:#EEF1FF;color:#3B4CCA">🔒 문잠그기 · ${dr.lock?esc(nameOf(dr.lock)):"미정"}</span>
-            <span class="tagrm" style="background:var(--primary-soft);color:var(--primary-d)">🧽 칠판닦기 · ${dr.board?esc(nameOf(dr.board)):"미정"}</span>
-          </div>
-        </div>
+        <p class="hint">주 3회 이상 -> 다음 주 월요일 대청소</p>
       </div>
       <div class="card"><h3>학사 일정</h3>${calendarHTML()}</div>
     </div>
